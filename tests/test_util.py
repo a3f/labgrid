@@ -21,6 +21,13 @@ def connection_localhost():
     con.disconnect()
 
 @pytest.fixture
+def connection_localhost_merged_stderr():
+    con = SSHConnection("localhost", stderr_merge=True)
+    con.connect()
+    yield con
+    con.disconnect()
+
+@pytest.fixture
 def sshmanager_fix():
     yield sshmanager
     sshmanager.close_all()
@@ -75,7 +82,7 @@ def test_sshconnection_inactive_raise():
     from labgrid.util.ssh import SSHConnection
     con = SSHConnection("localhost")
     with pytest.raises(ExecutionError):
-        con.run_command("echo Hallo")
+        con.run_check("echo Hallo")
 
 @pytest.mark.localsshmanager
 def test_sshconnection_connect(connection_localhost):
@@ -84,7 +91,23 @@ def test_sshconnection_connect(connection_localhost):
 
 @pytest.mark.localsshmanager
 def test_sshconnection_run(connection_localhost):
-    assert connection_localhost.run_command("echo Hello") == 0
+    (stdout, stderr, exitcode) = connection_localhost.run("echo stderr >&2; echo stdout")
+    assert exitcode == 0
+    assert stderr == ["stderr"]
+    assert stdout == ["stdout"]
+
+@pytest.mark.localsshmanager
+def test_sshconnection_run_merged_stderr(connection_localhost_merged_stderr):
+    (stdout, stderr, exitcode) = connection_localhost_merged_stderr.run("echo stderr >&2; echo stdout")
+    assert exitcode == 0
+    assert sorted(stdout) == ["stderr", "stdout"]
+    assert stderr == []
+
+@pytest.mark.localsshmanager
+def test_sshconnection_run_fail(connection_localhost):
+    (stdout, stderr, exitcode) = connection_localhost.run("false")
+    assert exitcode != 0
+
 
 @pytest.mark.localsshmanager
 def test_sshconnection_port_forward_add_remove(connection_localhost):

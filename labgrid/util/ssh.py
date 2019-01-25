@@ -124,6 +124,7 @@ class SSHConnection:
         validator=attr.validators.instance_of(str)
     )
     _forwards = attr.ib(init=False, default=attr.Factory(dict))
+    stderr_merge = attr.ib(default=False, validator=attr.validators.instance_of(bool))
 
     def __attrs_post_init__(self):
         self._logger = logging.getLogger("{}".format(self))
@@ -191,23 +192,75 @@ class SSHConnection:
         return wrapper
 
     @_check_connected
-    def run_command(self, command):
+    def run(self, command, *, codec = "utf-8", decodeerrors = "strict",
+            timeout = None): # pylint: disable=unused-argument
+
         """Run a command over the SSHConnection
 
         Args:
             command (string): The command to run
+            codec (string, optional): output encoding. Defaults to "utf-8".
+            decodeerrors (string, optional): behavior on decode errors. Defaults
+                 to "strict". Refer to stdtypes' bytes.decode for details.
+            timeout (float, optional): currently unused
 
-        Returns:
-            int: exitcode of the command
+        returns:
+            (stdout, stderr, returncode)
         """
+
         complete_cmd = ["ssh"] + self._get_ssh_args()
         complete_cmd += [self.host, command]
-        res = subprocess.check_call(
-            complete_cmd,
-            stdin=subprocess.DEVNULL,
-        )
+        self._logger.debug("Sending command: %s", complete_cmd)
+        if self.stderr_merge:
+            stderr_pipe = subprocess.STDOUT
+        else:
+            stderr_pipe = subprocess.PIPE
+        try:
+            sub = subprocess.Popen(
+                complete_cmd, stdout=subprocess.PIPE, stderr=stderr_pipe,
+                stdin=subprocess.DEVNULL
+            )
+        except:
+            raise ExecutionError(
+                "error executing command: {}".format(complete_cmd)
+            )
 
-        return res
+        stdout, stderr = sub.communicate()
+        stdout = stdout.decode(codec, decodeerrors).split('\n')
+        stdout.pop()
+        if stderr is None:
+            stderr = []
+        else:
+            stderr = stderr.decode(codec, decodeerrors).split('\n')
+            stderr.pop()
+        return (stdout, stderr, sub.returncode)
+
+    def run_check(self, command, *, codec = "utf-8", decodeerrors = "strict",
+                  timeout = None): # pylint: disable=unused-argument
+        """
+        Runs a command over the SSHConnection
+        returns the output if successful, raises ExecutionError otherwise.
+
+        Except for the means of returning the value, this is equivalent to
+        run.
+
+        Args:
+            command (string): The command to run
+            codec (string, optional): output encoding. Defaults to "utf-8".
+            decodeerrors (string, optional): behavior on decode errors. Defaults
+                 to "strict". Refer to stdtypes' bytes.decode for details.
+            timeout (float, optional): currently unused
+
+        Returns:
+            List[str]: stdout of the executed command if successful and
+                       otherwise an ExecutionError Exception
+
+        """
+        stdout, stderr, exitcode = self.run(command, timeout=timeout, codec=codec,
+                                            decodeerrors=decodeerrors)
+        if exitcode != 0:
+            raise ExecutionError(command, stdout, stderr)
+        return stdout
 
     @_check_connected
     def get_file(self, remote_file, local_file):
