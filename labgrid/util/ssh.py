@@ -215,6 +215,7 @@ class SSHConnection:
             stderr_pipe = subprocess.STDOUT
         else:
             stderr_pipe = subprocess.PIPE
+
         try:
             sub = subprocess.Popen(
                 complete_cmd, stdout=subprocess.PIPE, stderr=stderr_pipe,
