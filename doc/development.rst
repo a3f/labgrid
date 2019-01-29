@@ -405,6 +405,15 @@ To use it in conjunction with a `Resource` and a file:
    mf.sync_to_resource()
    path = mf.get_remote_path()
 
+Unless constructed with `ManagedFile(..., detect_nfs=False)`, ManagedFile
+employs following heuristic to check if a file is on NFS and if so, foregoes
+the transfer and `get_remote_path()` just returns the local path:
+
+  - check if GNU coreutils stat(1) with option --format exists on local and
+    remote system
+  - check if inode number, total size and birth/modification timestamps match
+    on local and remote system
+
 ProxyManager
 ------------
 The proxymanager is used to open connections across proxies via an attribute in
