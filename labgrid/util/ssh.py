@@ -240,18 +240,25 @@ class SSHConnection:
         stderr = []
 
         readable = {
-            sub.stdout.fileno(): (stdout, stdout_loglevel),
-            sub.stderr.fileno(): (stderr, stderr_loglevel),
+            sub.stdout.fileno(): (sub.stdout, stdout, stdout_loglevel),
         }
 
+        if sub.stderr is not None:
+            readable[sub.stderr.fileno()] = (sub.stderr, stderr, stderr_loglevel)
+
         while readable:
-            for stream in select(readable, [], [])[0]:
+            for fd in select(readable, [], [])[0]:
+                try:
+                    stream, output, loglevel = readable[fd]
+                except Exception as e:
+                    print(e)
+                    import IPython
+                    IPython.embed()
                 line = stream.readline().decode(codec, decodeerrors)
                 if line == "": # EOF
-                    del readable[stream]
+                    del readable[fd]
                 else:
                     line = line.rstrip('\n')
-                    output, loglevel = readable[stream]
                     output.append(line)
                     if loglevel is not None:
                         self._logger.log(loglevel, line)
