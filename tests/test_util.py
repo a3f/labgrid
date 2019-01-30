@@ -271,7 +271,7 @@ Test
 """
     )
     hash = hashlib.sha256(t.read().encode("utf-8")).hexdigest()
-    mf = ManagedFile(t, res, detect_nfs = False)
+    mf = ManagedFile(t, res, detect_nfs=False)
     mf.sync_to_resource()
 
     assert os.path.isfile("/tmp/labgrid-{}/{}/test".format(getpass.getuser(), hash))
@@ -287,7 +287,7 @@ def test_remote_managedfile_on_nfs(target, tmpdir):
 Test
 """
     )
-    mf = ManagedFile(t, res, detect_nfs = True)
+    mf = ManagedFile(t, res, detect_nfs=True)
     mf.sync_to_resource()
 
     assert str(t) == mf.get_remote_path()
@@ -303,9 +303,8 @@ Test
 """
     )
     hash = hashlib.sha256(t.read().encode("utf-8")).hexdigest()
-    mf = ManagedFile(t, res, detect_nfs = False)
+    mf = ManagedFile(t, res, detect_nfs=False)
     mf.sync_to_resource()
 
     assert hash == mf.get_hash()
     assert str(t) == mf.get_remote_path()
-

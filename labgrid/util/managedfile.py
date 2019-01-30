@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 import subprocess
 
@@ -35,6 +36,7 @@ class ManagedFile:
     def __attrs_post_init__(self):
         if not os.path.isfile(self.local_path):
             raise FileNotFoundError("Local file {} not found".format(self.local_path))
+        self.logger = logging.getLogger("{}".format(self))
         self.hash = None
         self.rpath = None
         self._on_nfs_cached = None
@@ -49,7 +51,7 @@ class ManagedFile:
             host = self.resource.host
             conn = sshmanager.open(host)
 
-            if self._on_nfs(conn) == True:
+            if self._on_nfs(conn):
                 return # nothing to do
 
             self.rpath = "/tmp/labgrid-{user}/{hash}/".format(
@@ -69,19 +71,33 @@ class ManagedFile:
         if not self.detect_nfs:
             return False
 
+        self._on_nfs_cached = False
+
         fmt="inode=%i,size=%s,birth=%W,modified=%Y"
-        remote = conn.run("stat --format '{}' {}".format(fmt, self.local_path),
-                          decodeerrors="backslashreplace")
         local = subprocess.run(["stat", "--format", fmt, self.local_path],
                                stdout=subprocess.PIPE)
+        if local.returncode != 0:
+            self.logger.debug("local: stat: unsuccessful error code %d", local.returncode)
+            return False
+
+        remote = conn.run("stat --format '{}' {}".format(fmt, self.local_path),
+                          decodeerrors="backslashreplace")
+        if remote[2] != 0:
+            self.logger.debug("remote: stat: unsuccessful error code %d", remote[2])
+            return False
+
         localout = local.stdout.decode("utf-8", "backslashreplace").split('\n')
         localout.pop() # remove trailing empty element
 
-        self._on_nfs_cached = remote[2] == local.returncode == 0 and remote[0] == localout
-        if self._on_nfs_cached:
-            self.rpath = os.path.dirname(self.local_path) + "/"
+        if remote[0] != localout:
+            self.logger.debug("state: local (%s) and remote (%s) output don't match",
+                              remote[0], localout)
+            return False
 
-        return self._on_nfs_cached
+        self.rpath = os.path.dirname(self.local_path) + "/"
+        self._on_nfs_cached = True
+
+        return True
 
     def get_remote_path(self):
         """Retrieve the remote file path
