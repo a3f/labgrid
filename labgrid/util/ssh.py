@@ -240,8 +240,8 @@ class SSHConnection:
         stderr = []
 
         readable = {
-            sub.stdout: (stdout, stdout_loglevel),
-            sub.stderr: (stderr, stderr_loglevel),
+            sub.stdout.fileno(): (stdout, stdout_loglevel),
+            sub.stderr.fileno(): (stderr, stderr_loglevel),
         }
 
         while readable:
@@ -259,7 +259,8 @@ class SSHConnection:
         return stdout, stderr, sub.wait()
 
     def run_check(self, command, *, codec="utf-8", decodeerrors="strict",
-        stderr_merge=False, stderr_loglevel=None, stdout_loglevel=None):
+        force_tty=False, stderr_merge=False, stderr_loglevel=None,
+        stdout_loglevel=None):
         """
         Runs a command over the SSHConnection
         returns the output if successful, raises ExecutionError otherwise.
