@@ -406,8 +406,9 @@ To use it in conjunction with a `Resource` and a file:
    path = mf.get_remote_path()
 
 Unless constructed with `ManagedFile(..., detect_nfs=False)`, ManagedFile
-employs following heuristic to check if a file is on NFS and if so, foregoes
-the transfer and `get_remote_path()` just returns the local path:
+employs the following heuristic to check if a file is on NFS and if so, foregoes
+the transfer and `get_remote_path()` just returns the local path (which is
+identical to the remote path in this case):
 
   - check if GNU coreutils stat(1) with option --format exists on local and
     remote system
