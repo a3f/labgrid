@@ -4,6 +4,7 @@ import socket
 
 import attr
 import pytest
+import logging
 
 from labgrid.util import diff_dict, flat_dict, filter_dict
 from labgrid.util.ssh import ForwardError, SSHConnection, sshmanager
@@ -16,13 +17,6 @@ from labgrid.resource.common import Resource, NetworkResource
 @pytest.fixture
 def connection_localhost():
     con = SSHConnection("localhost")
-    con.connect()
-    yield con
-    con.disconnect()
-
-@pytest.fixture
-def connection_localhost_merged_stderr():
-    con = SSHConnection("localhost", stderr_merge=True)
     con.connect()
     yield con
     con.disconnect()
@@ -91,14 +85,29 @@ def test_sshconnection_connect(connection_localhost):
 
 @pytest.mark.localsshmanager
 def test_sshconnection_run(connection_localhost):
-    (stdout, stderr, exitcode) = connection_localhost.run("echo stderr >&2; echo stdout")
+    stdout, stderr, exitcode = connection_localhost.run("echo stderr >&2; echo stdout1; echo stdout2")
     assert exitcode == 0
     assert stderr == ["stderr"]
-    assert stdout == ["stdout"]
+    assert stdout == ["stdout1", "stdout2"]
 
 @pytest.mark.localsshmanager
-def test_sshconnection_run_merged_stderr(connection_localhost_merged_stderr):
-    (stdout, stderr, exitcode) = connection_localhost_merged_stderr.run("echo stderr >&2; echo stdout")
+def test_sshconnection_run_log(connection_localhost, caplog):
+    caplog.set_level(logging.INFO)
+    stdout, stderr, exitcode = connection_localhost.run("echo stderr >&2; echo stdout1; echo stdout2",
+            stdout_loglevel=logging.INFO, stderr_loglevel=logging.WARNING)
+    assert exitcode == 0
+    assert stderr == ["stderr"]
+    assert stdout == ["stdout1", "stdout2"]
+    assert sorted([(rec[1], rec[2]) for rec in caplog.record_tuples]) == [
+        (logging.INFO, 'stdout1'),
+        (logging.INFO, 'stdout2'),
+        (logging.WARNING, 'stderr'),
+   ]
+
+@pytest.mark.localsshmanager
+def test_sshconnection_run_merged_stderr(connection_localhost):
+    stdout, stderr, exitcode = connection_localhost.run(
+            "echo stderr >&2; echo stdout", stderr_merge=True)
     assert exitcode == 0
     assert sorted(stdout) == ["stderr", "stdout"]
     assert stderr == []

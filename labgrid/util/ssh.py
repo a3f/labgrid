@@ -3,6 +3,7 @@ import tempfile
 import logging
 import subprocess
 import os
+from select import select
 import socket
 from functools import wraps
 
@@ -124,7 +125,6 @@ class SSHConnection:
         validator=attr.validators.instance_of(str)
     )
     _forwards = attr.ib(init=False, default=attr.Factory(dict))
-    stderr_merge = attr.ib(default=False, validator=attr.validators.instance_of(bool))
 
     def __attrs_post_init__(self):
         self._logger = logging.getLogger("{}".format(self))
@@ -192,8 +192,9 @@ class SSHConnection:
         return wrapper
 
     @_check_connected
-    def run(self, command, *, codec = "utf-8", decodeerrors = "strict",
-            timeout = None): # pylint: disable=unused-argument
+    def run(self, command, *, codec="utf-8", decodeerrors="strict",
+            force_tty=False, stderr_merge=False, stderr_loglevel=None,
+            stdout_loglevel=None):
 
         """Run a command over the SSHConnection
 
@@ -202,16 +203,25 @@ class SSHConnection:
             codec (string, optional): output encoding. Defaults to "utf-8".
             decodeerrors (string, optional): behavior on decode errors. Defaults
                  to "strict". Refer to stdtypes' bytes.decode for details.
-            timeout (float, optional): currently unused
+            force_tty (bool, optional): force allocate a tty (ssh -t). Defaults
+                 to False
+            stderr_merge (bool, optional): merge ssh subprocess stderr into
+                 stdout. Defaults to False.
+            stdout_loglevel (int, optional): log stdout with specific log level
+                 as well. Defaults to None, i.e. don't log.
+            stderr_loglevel (int, optional): log stderr with specific log level
+                 as well. Defaults to None, i.e. don't log.
 
         returns:
             (stdout, stderr, returncode)
         """
 
         complete_cmd = ["ssh"] + self._get_ssh_args()
+        if force_tty:
+            complete_cmd += ["-tt"]
         complete_cmd += [self.host, command]
         self._logger.debug("Sending command: %s", complete_cmd)
-        if self.stderr_merge:
+        if stderr_merge:
             stderr_pipe = subprocess.STDOUT
         else:
             stderr_pipe = subprocess.PIPE
@@ -226,18 +236,30 @@ class SSHConnection:
                 "error executing command: {}".format(complete_cmd)
             )
 
-        stdout, stderr = sub.communicate()
-        stdout = stdout.decode(codec, decodeerrors).split('\n')
-        stdout.pop()
-        if stderr is None:
-            stderr = []
-        else:
-            stderr = stderr.decode(codec, decodeerrors).split('\n')
-            stderr.pop()
-        return (stdout, stderr, sub.returncode)
+        stdout = []
+        stderr = []
 
-    def run_check(self, command, *, codec = "utf-8", decodeerrors = "strict",
-                  timeout = None): # pylint: disable=unused-argument
+        readable = {
+            sub.stdout: (stdout, stdout_loglevel),
+            sub.stderr: (stderr, stderr_loglevel),
+        }
+
+        while readable:
+            for stream in select(readable, [], [])[0]:
+                line = stream.readline().decode(codec, decodeerrors)
+                if line == "": # EOF
+                    del readable[stream]
+                else:
+                    line = line.rstrip('\n')
+                    output, loglevel = readable[stream]
+                    output.append(line)
+                    if loglevel is not None:
+                        self._logger.log(loglevel, line)
+
+        return stdout, stderr, sub.wait()
+
+    def run_check(self, command, *, codec="utf-8", decodeerrors="strict",
+        stderr_merge=False, stderr_loglevel=None, stdout_loglevel=None):
         """
         Runs a command over the SSHConnection
         returns the output if successful, raises ExecutionError otherwise.
@@ -250,15 +272,25 @@ class SSHConnection:
             codec (string, optional): output encoding. Defaults to "utf-8".
             decodeerrors (string, optional): behavior on decode errors. Defaults
                  to "strict". Refer to stdtypes' bytes.decode for details.
-            timeout (float, optional): currently unused
+            force_tty (bool, optional): force allocate a tty (ssh -t). Defaults
+                 to False
+            stderr_merge (bool, optional): merge ssh subprocess stderr into
+                 stdout. Defaults to False.
+            stdout_loglevel (int, optional): log stdout with specific log level
+                 as well. Defaults to None, i.e. don't log.
+            stderr_loglevel (int, optional): log stderr with specific log level
+                 as well. Defaults to None, i.e. don't log.
 
         Returns:
             List[str]: stdout of the executed command if successful and
                        otherwise an ExecutionError Exception
 
         """
-        stdout, stderr, exitcode = self.run(command, timeout=timeout, codec=codec,
-                                            decodeerrors=decodeerrors)
+        stdout, stderr, exitcode = self.run(command, codec=codec,
+                decodeerrors=decodeerrors, force_tty=force_tty,
+                stderr_merge=stderr_merge, stdout_loglevel=stdout_loglevel,
+                stderr_loglevel=stderr_loglevel)
+
         if exitcode != 0:
             raise ExecutionError(command, stdout, stderr)
         return stdout
